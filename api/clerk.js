@@ -47,22 +47,26 @@ module.exports = async function handler(req, res) {
       }
     });
   
-    // Primary + fast fallback models if Google experiences temporary high demand
-    const models = [
-      'gemini-3.8-flash',
-      'gemini-3.8-flash-lite',
-      'gemini-2.5-flash-lite'
+    // Active Gemini 3.8 endpoints with automatic retry on temporary 503 demand spikes
+    const attempts = [
+      { model: 'gemini-3.8-flash', delayMs: 0 },
+      { model: 'gemini-3.8-flash-lite', delayMs: 300 },
+      { model: 'gemini-3.8-flash', delayMs: 700 }
     ];
   
     let lastError = 'Upstream error';
   
-    for (const model of models) {
+    for (const attempt of attempts) {
+      if (attempt.delayMs > 0) {
+        await new Promise(resolve => setTimeout(resolve, attempt.delayMs));
+      }
+  
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const timeoutId = setTimeout(() => controller.abort(), 4500);
   
       try {
         const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+          `https://generativelanguage.googleapis.com/v1beta/models/${attempt.model}:generateContent?key=${apiKey}`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -87,16 +91,14 @@ module.exports = async function handler(req, res) {
   
         lastError = data?.error?.message || `HTTP ${response.status}`;
   
-        // If model is overloaded (503) or rate-limited (429), immediately try next model
         if (response.status === 503 || response.status === 429 || response.status === 404) {
           continue;
         }
   
-        // Stop immediately on auth errors (400/401/403)
         break;
       } catch (err) {
         clearTimeout(timeoutId);
-        lastError = err.name === 'AbortError' ? `${model} timeout` : err.message;
+        lastError = err.name === 'AbortError' ? `${attempt.model} timeout` : err.message;
       }
     }
   
