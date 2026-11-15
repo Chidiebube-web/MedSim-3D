@@ -1,0 +1,1061 @@
+:root {
+    --bg-deep: #060a12;
+    --glass-bg: rgba(13, 21, 36, 0.82);
+    --glass-border: rgba(148, 163, 184, 0.16);
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+    --accent-cyan: #06b6d4;
+    --vital-hr: #10b981;
+    --vital-spo2: #38bdf8;
+    --vital-bp: #f43f5e;
+    --vital-rr: #facc15;
+    --vital-temp: #c084fc;
+    --vital-uo: #fb923c;
+  }
+  
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    user-select: none;
+  }
+  
+  html, body {
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    background-color: var(--bg-deep);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: var(--text-primary);
+  }
+  
+  /* 3D Canvas & Hotspots */
+  #canvas-container {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+  }
+  
+  #hotspots-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 5;
+    pointer-events: none;
+  }
+  
+  .hotspot-pin {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    pointer-events: auto;
+    background: rgba(10, 18, 32, 0.86);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(56, 189, 248, 0.55);
+    color: #e0f2fe;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+    white-space: nowrap;
+  }
+  
+  .hotspot-pin:hover {
+    background: rgba(6, 182, 212, 0.28);
+    border-color: #38bdf8;
+    transform: translate(-50%, -50%) scale(1.07);
+  }
+  
+  .hotspot-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #38bdf8;
+    box-shadow: 0 0 8px #38bdf8;
+    animation: pulseDot 1.6s infinite;
+  }
+  
+  @keyframes pulseDot {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.5); opacity: 0.45; }
+  }
+  
+  /* =========================================================
+     HUD GRID ARCHITECTURE
+     - Row 1: Top Header (Cols 1-3)
+     - Row 2: Left Feed (Col 1), 3D Viewport (Col 2), Full Right Monitor (Col 3, Rows 2-3)
+     - Row 3: Bottom Action Drawer (Cols 1-2 ONLY, stops cleanly at Col 3 border)
+     ========================================================= */
+  .hud-grid {
+    position: fixed;
+    inset: 0;
+    z-index: 10;
+    pointer-events: none;
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr) 355px;
+    grid-template-rows: 58px minmax(0, 1fr) 178px;
+    gap: 10px;
+    padding: 10px;
+  }
+  
+  .glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    border-radius: 14px;
+    box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.65);
+    pointer-events: auto;
+  }
+  
+  /* Top Header Bar */
+  .top-bar {
+    grid-column: 1 / 4;
+    grid-row: 1 / 2;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+  }
+  
+  .patient-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  
+  .brand-badge {
+    background: rgba(6, 182, 212, 0.16);
+    border: 1px solid rgba(6, 182, 212, 0.5);
+    color: #67e8f9;
+    font-family: 'Space Grotesk', sans-serif;
+    font-weight: 700;
+    font-size: 11px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    letter-spacing: 0.06em;
+  }
+  
+  .patient-name {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  
+  .patient-meta {
+    font-size: 11px;
+    color: var(--text-secondary);
+  }
+  
+  .case-switcher {
+    display: flex;
+    gap: 6px;
+    margin-left: 8px;
+  }
+  
+  .case-btn {
+    background: rgba(15, 23, 42, 0.75);
+    border: 1px solid var(--glass-border);
+    color: var(--text-secondary);
+    padding: 5px 10px;
+    border-radius: 8px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  
+  .case-btn:hover, .case-btn.active {
+    background: rgba(6, 182, 212, 0.18);
+    border-color: rgba(6, 182, 212, 0.55);
+    color: #e0f2fe;
+  }
+  
+  .glb-upload-label {
+    border-color: rgba(192, 132, 252, 0.4);
+    color: #e9d5ff;
+  }
+  
+  .sim-clock-wrap {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  
+  .clock-label {
+    font-size: 9.5px;
+    color: var(--text-muted);
+    text-align: right;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+  
+  .sim-clock {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 19px;
+    font-weight: 700;
+    color: #38bdf8;
+    text-align: right;
+  }
+  
+  .speed-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    background: rgba(56, 189, 248, 0.12);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    color: #7dd3fc;
+    cursor: pointer;
+  }
+  
+  .btn-debrief {
+    background: rgba(244, 63, 94, 0.16);
+    border: 1px solid rgba(244, 63, 94, 0.45);
+    color: #fecdd3;
+    padding: 6px 13px;
+    border-radius: 8px;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  
+  .btn-debrief:hover {
+    background: rgba(244, 63, 94, 0.28);
+    border-color: #fb7185;
+  }
+  
+  /* Left Panel (Takes full height of Row 2 above Bottom Drawer) */
+  .left-panel {
+    grid-column: 1 / 2;
+    grid-row: 2 / 3;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-height: 100%;
+    overflow: hidden;
+  }
+  
+  .section-card {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .log-card {
+    flex: 1 1 auto;
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+  }
+  
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+    padding-bottom: 7px;
+    flex-shrink: 0;
+  }
+  
+  .card-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-secondary);
+  }
+  
+  .card-sub {
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+  
+  .log-feed {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    padding-right: 4px;
+    font-size: 12px;
+  }
+  
+  .log-entry {
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: rgba(15, 23, 42, 0.6);
+    border-left: 3px solid var(--accent-cyan);
+    line-height: 1.4;
+  }
+  
+  .log-entry.warn { border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
+  .log-entry.crit { border-left-color: #ef4444; background: rgba(239, 68, 68, 0.13); }
+  .log-entry.good { border-left-color: #10b981; background: rgba(16, 185, 129, 0.1); }
+  
+  .log-time {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--text-muted);
+    margin-bottom: 2px;
+  }
+  
+  /* Center Camera Controls */
+  .center-area {
+    grid-column: 2 / 3;
+    grid-row: 2 / 3;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: center;
+    pointer-events: none;
+    padding-bottom: 4px;
+  }
+  
+  .camera-bar {
+    display: flex;
+    gap: 5px;
+    padding: 5px;
+    border-radius: 999px;
+    pointer-events: auto;
+  }
+  
+  .cam-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-secondary);
+    padding: 5px 10px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  
+  .cam-btn:hover, .cam-btn.active {
+    background: rgba(6, 182, 212, 0.18);
+    border-color: rgba(6, 182, 212, 0.45);
+    color: #e0f2fe;
+  }
+  
+  /* Right Patient Telemetry Monitor (FULL HEAD-TO-TOE HEIGHT: Rows 2 to 4) */
+  .right-panel {
+    grid-column: 3 / 4;
+    grid-row: 2 / 4;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    max-height: 100%;
+    overflow: hidden;
+  }
+  
+  .monitor-card {
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    height: 100%;
+    min-height: 0;
+  }
+  
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 8px #10b981;
+  }
+  
+  .waveform-wrap {
+    position: relative;
+    height: 105px;
+    flex-shrink: 0;
+    background: #030712;
+    border: 1px solid rgba(148, 163, 184, 0.16);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  
+  #waveform-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  
+  .wave-label {
+    position: absolute;
+    top: 5px;
+    left: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: var(--vital-hr);
+  }
+  
+  .vitals-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: repeat(3, 1fr);
+    gap: 8px;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+  
+  .vital-box {
+    background: rgba(5, 10, 20, 0.8);
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    min-height: 0;
+  }
+  
+  .vital-box.critical-flash {
+    animation: critPulse 1s infinite;
+  }
+  
+  @keyframes critPulse {
+    0%, 100% { border-color: rgba(239, 68, 68, 0.85); background: rgba(239, 68, 68, 0.14); }
+    50% { border-color: rgba(148, 163, 184, 0.14); background: rgba(5, 10, 20, 0.8); }
+  }
+  
+  .vital-label {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    display: flex;
+    justify-content: space-between;
+  }
+  
+  .vital-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1.05;
+  }
+  
+  .vital-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10.5px;
+    color: var(--text-secondary);
+  }
+  
+  .hr-color { color: var(--vital-hr); }
+  .spo2-color { color: var(--vital-spo2); }
+  .bp-color { color: var(--vital-bp); }
+  .rr-color { color: var(--vital-rr); }
+  .temp-color { color: var(--vital-temp); }
+  .uo-color { color: var(--vital-uo); }
+  
+  .news-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 9px 11px;
+    border-radius: 9px;
+    background: rgba(15, 23, 42, 0.82);
+    border: 1px solid rgba(148, 163, 184, 0.15);
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+  
+  .news-title {
+    font-weight: 700;
+    color: var(--text-secondary);
+    font-size: 10px;
+  }
+  
+  .news-sub {
+    font-size: 11.5px;
+    color: var(--text-primary);
+    margin-top: 2px;
+  }
+  
+  .news-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    padding: 4px 9px;
+    border-radius: 6px;
+    background: rgba(239, 68, 68, 0.2);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.45);
+  }
+  
+  /* =========================================================
+     BOTTOM CLINICAL ACTION DRAWER
+     - Spans Cols 1–2 ONLY (stops right before Col 3 telemetry)
+     - Horizontal scrollable flex track so cards are never squeezed
+     ========================================================= */
+  .bottom-drawer {
+    grid-column: 1 / 3;
+    grid-row: 3 / 4;
+    display: flex;
+    flex-direction: column;
+    padding: 9px 12px;
+    gap: 8px;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+  }
+  
+  .tabs-row {
+    display: flex;
+    gap: 6px;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+    padding-bottom: 7px;
+    overflow-x: auto;
+    flex-shrink: 0;
+  }
+  
+  .tab-btn {
+    background: rgba(15, 23, 42, 0.65);
+    border: 1px solid rgba(148, 163, 184, 0.14);
+    color: var(--text-secondary);
+    padding: 5px 11px;
+    border-radius: 8px;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: all 0.15s ease;
+  }
+  
+  .tab-btn.active, .tab-btn:hover {
+    background: rgba(6, 182, 212, 0.18);
+    border-color: rgba(6, 182, 212, 0.55);
+    color: #e0f2fe;
+  }
+  
+  /* Horizontal Scroll Container for Medical Action Cards */
+  .actions-scroll-track {
+    display: flex;
+    flex-direction: row;
+    align-items: stretch;
+    gap: 10px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    flex: 1 1 auto;
+    min-height: 0;
+    padding-bottom: 4px;
+    scroll-behavior: smooth;
+  }
+  
+  /* Custom Sleek Horizontal Scrollbar */
+  .actions-scroll-track::-webkit-scrollbar {
+    height: 6px;
+  }
+  .actions-scroll-track::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.45);
+    border-radius: 999px;
+  }
+  .actions-scroll-track::-webkit-scrollbar-thumb {
+    background: rgba(56, 189, 248, 0.4);
+    border-radius: 999px;
+  }
+  .actions-scroll-track::-webkit-scrollbar-thumb:hover {
+    background: rgba(56, 189, 248, 0.7);
+  }
+  
+  .action-btn {
+    flex: 0 0 235px;
+    min-width: 235px;
+    background: rgba(15, 23, 42, 0.78);
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    border-radius: 10px;
+    padding: 10px 12px;
+    text-align: left;
+    color: var(--text-primary);
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 6px;
+    transition: all 0.15s ease;
+  }
+  
+  .action-btn:hover:not(:disabled) {
+    background: rgba(30, 41, 59, 0.95);
+    border-color: #38bdf8;
+    transform: translateY(-2px);
+  }
+  
+  .action-btn.completed {
+    border-color: rgba(16, 185, 129, 0.5);
+    background: rgba(16, 185, 129, 0.11);
+  }
+  
+  .action-title {
+    font-size: 12px;
+    font-weight: 600;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 6px;
+    line-height: 1.3;
+  }
+  
+  .action-sub {
+    font-size: 11px;
+    color: var(--text-secondary);
+    line-height: 1.3;
+  }
+  
+  .action-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9.5px;
+    padding: 2px 6px;
+    border-radius: 4px;
+    background: rgba(56, 189, 248, 0.14);
+    color: #7dd3fc;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  
+  /* Bedside Dialogue Reply Card inside Horizontal Track */
+  .dialogue-card {
+    flex: 0 0 300px;
+    min-width: 300px;
+    background: rgba(6, 182, 212, 0.11);
+    border: 1px solid rgba(56, 189, 248, 0.45);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+  }
+  
+  .dialogue-speaker {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #38bdf8;
+  }
+  
+  .dialogue-text {
+    font-size: 11.5px;
+    color: #f8fafc;
+    font-style: italic;
+    line-height: 1.35;
+  }
+  
+  /* Toast Notification */
+  .toast-banner {
+    position: fixed;
+    top: 72px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 30;
+    background: rgba(15, 23, 42, 0.94);
+    border: 1px solid #38bdf8;
+    padding: 8px 16px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #e0f2fe;
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease;
+  }
+  
+  .toast-banner.show {
+    opacity: 1;
+  }
+  
+  /* Post-Case Protocol Reveal Pop-Up Modal */
+  .modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(3, 7, 18, 0.85);
+    backdrop-filter: blur(10px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  
+  .modal-backdrop.open {
+    display: flex;
+  }
+  
+  .modal-card {
+    max-width: 600px;
+    width: 100%;
+    padding: 22px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 13px;
+  }
+  
+  .modal-status {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #38bdf8;
+  }
+  
+  .modal-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 21px;
+    font-weight: 700;
+  }
+  
+  .modal-desc {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.45;
+  }
+  
+  .protocol-reveal-box {
+    background: rgba(15, 23, 42, 0.72);
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    border-radius: 10px;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  
+  .protocol-reveal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #7dd3fc;
+    border-bottom: 1px solid rgba(148, 163, 184, 0.14);
+    padding-bottom: 6px;
+  }
+  
+  .protocol-checklist {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+  }
+  
+  .proto-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 8px;
+    border-radius: 7px;
+    font-size: 11px;
+    background: rgba(30, 41, 59, 0.55);
+    color: var(--text-secondary);
+  }
+  
+  .proto-row.done {
+    background: rgba(16, 185, 129, 0.15);
+    color: #d1fae5;
+    border: 1px solid rgba(16, 185, 129, 0.35);
+  }
+  
+  .proto-row.missed {
+    background: rgba(239, 68, 68, 0.12);
+    color: #fecaca;
+    border: 1px solid rgba(239, 68, 68, 0.3);
+  }
+  
+  .modal-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+  }
+  
+  .metric-tile {
+    background: rgba(15, 23, 42, 0.7);
+    border: 1px solid var(--glass-border);
+    padding: 9px 11px;
+    border-radius: 8px;
+  }
+  
+  .metric-tile-label {
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+  
+  .metric-tile-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    font-weight: 700;
+    margin-top: 2px;
+  }
+  
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    justify-content: flex-end;
+    margin-top: 4px;
+  }
+  
+  .btn-primary {
+    background: linear-gradient(135deg, #06b6d4, #2563eb);
+    border: none;
+    color: white;
+    padding: 9px 18px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+  
+  .btn-secondary {
+    background: rgba(30, 41, 59, 0.85);
+    border: 1px solid var(--glass-border);
+    color: var(--text-primary);
+    padding: 9px 16px;
+    border-radius: 8px;
+    font-weight: 600;
+    font-size: 12.5px;
+    cursor: pointer;
+  }
+
+  /* =========================================================
+   RESPONSIVE BREAKPOINTS (Tablet & Mobile Viewports)
+   ========================================================= */
+
+/* 1. Tablet & Small Laptop (<= 1150px) */
+@media (max-width: 1150px) {
+    .hud-grid {
+      grid-template-columns: 270px minmax(0, 1fr) 295px;
+      grid-template-rows: 56px minmax(0, 1fr) 168px;
+      gap: 8px;
+      padding: 8px;
+    }
+  
+    .patient-meta,
+    .glb-upload-label {
+      display: none;
+    }
+  
+    .vital-value {
+      font-size: 21px;
+    }
+  
+    .action-btn {
+      flex: 0 0 205px;
+      min-width: 205px;
+      padding: 8px 10px;
+    }
+  }
+  
+  /* 2. Mobile Portrait & Narrow Viewports (<= 820px) */
+  @media (max-width: 820px) {
+    html, body {
+      overflow-y: auto;
+      height: auto;
+      min-height: 100vh;
+    }
+  
+    /* Keep 3D resuscitation bay fixed in the background while HUD scrolls cleanly */
+    #canvas-container {
+      position: fixed;
+      inset: 0;
+      z-index: 1;
+    }
+  
+    /* Hide floating 3D pins on small touch screens to avoid clutter; camera bar handles angles */
+    #hotspots-layer {
+      display: none;
+    }
+  
+    .hud-grid {
+      position: relative;
+      inset: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 10px;
+      min-height: 100vh;
+    }
+  
+    /* Compact Wrapping Top Header */
+    .top-bar {
+      flex-wrap: wrap;
+      height: auto;
+      padding: 10px 12px;
+      gap: 8px;
+    }
+  
+    .patient-banner {
+      width: 100%;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+  
+    .case-switcher {
+      margin-left: 0;
+      width: 100%;
+    }
+  
+    .case-btn {
+      flex: 1;
+      text-align: center;
+    }
+  
+    /* Leave clear 3D viewport window so you can see and orbit the 3D patient */
+    .center-area {
+      min-height: 250px;
+      justify-content: flex-end;
+      order: 2;
+    }
+  
+    .camera-bar {
+      max-width: 100%;
+      overflow-x: auto;
+      border-radius: 12px;
+    }
+  
+    .cam-btn {
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+  
+    /* Telemetry Monitor Card */
+    .right-panel {
+      order: 3;
+      max-height: none;
+    }
+  
+    .waveform-wrap {
+      height: 75px;
+    }
+  
+    .vitals-grid {
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(2, auto);
+    }
+  
+    .vital-value {
+      font-size: 19px;
+    }
+  
+    /* Sticky / Accessible Bottom Action Drawer */
+    .bottom-drawer {
+      order: 4;
+      height: 185px;
+    }
+  
+    /* Clerking & Event Feed */
+    .left-panel {
+      order: 5;
+      max-height: 280px;
+    }
+  
+    .protocol-checklist {
+      grid-template-columns: 1fr;
+    }
+  
+    .modal-metrics {
+      grid-template-columns: 1fr;
+    }
+  }
+  
+  /* 3. Extra Small Phones (<= 480px) */
+  @media (max-width: 480px) {
+    .vitals-grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  
+    .action-btn {
+      flex: 0 0 195px;
+      min-width: 195px;
+    }
+  
+    .dialogue-card {
+      flex: 0 0 245px;
+      min-width: 245px;
+    }
+  }
+
+  /* Free-Text Clerking Input Card */
+.clerking-input-card {
+    flex: 0 0 360px;
+    min-width: 360px;
+    background: rgba(15, 23, 42, 0.85);
+    border: 1px solid rgba(56, 189, 248, 0.35);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  
+  .clerking-input-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  
+  .speaker-toggle {
+    display: flex;
+    gap: 4px;
+  }
+  
+  .spk-btn {
+    background: rgba(30, 41, 59, 0.8);
+    border: 1px solid var(--glass-border);
+    color: var(--text-secondary);
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  
+  .spk-btn.active {
+    background: rgba(6, 182, 212, 0.22);
+    border-color: #38bdf8;
+    color: #e0f2fe;
+  }
+  
+  .clerking-form {
+    display: flex;
+    gap: 6px;
+  }
+  
+  .clerking-input {
+    flex: 1;
+    background: rgba(3, 7, 18, 0.85);
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: #f8fafc;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px;
+    user-select: text;
+  }
+  
+  .clerking-input:focus {
+    outline: none;
+    border-color: #38bdf8;
+  }
+  
+  .clerking-send-btn {
+    background: linear-gradient(135deg, #06b6d4, #2563eb);
+    border: none;
+    border-radius: 8px;
+    color: white;
+    font-weight: 600;
+    font-size: 12px;
+    padding: 0 14px;
+    cursor: pointer;
+  }

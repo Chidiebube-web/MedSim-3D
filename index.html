@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MedSim 3D | Accident & Emergency Clinical Simulation</title>
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet" />
+
+  <!-- External Stylesheet -->
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- Three.js & GLTFLoader -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+</head>
+<body>
+  <!-- 3D Viewport Canvas Container -->
+  <div id="canvas-container"></div>
+
+  <!-- 2D Projected 3D Anatomical Hotspots -->
+  <div id="hotspots-layer"></div>
+
+  <!-- Toast Alert Banner -->
+  <div id="toast-banner" class="toast-banner"></div>
+
+  <!-- Main HUD Overlay -->
+  <div class="hud-grid">
+    
+    <!-- TOP BAR -->
+    <header class="top-bar glass-panel">
+      <div class="patient-banner">
+        <div class="brand-badge">MEDSIM 3D // A&amp;E</div>
+        <div>
+          <div class="patient-name" id="pt-name">Mrs. Folake Adebayo, 54F</div>
+          <div class="patient-meta" id="pt-meta">Hosp #AE-8841 • Triage: RED (Immediate) • Weight: 68kg</div>
+        </div>
+        <div class="case-switcher">
+          <button class="case-btn active" id="btn-case-female">♀ Case 1: 54F (Triage Red)</button>
+          <button class="case-btn" id="btn-case-male">♂ Case 2: 62M (Triage Red)</button>
+          <label class="case-btn glb-upload-label" title="Import custom 3D human model (.glb/.gltf)">
+            📦 Load .GLB
+            <input type="file" id="glb-input" accept=".glb,.gltf" hidden />
+          </label>
+        </div>
+      </div>
+
+      <div class="sim-clock-wrap">
+        <div>
+          <div class="clock-label">RESUS ELAPSED / LIMIT (10:00)</div>
+          <div class="sim-clock" id="sim-timer">00:00</div>
+        </div>
+        <div class="speed-badge" id="btn-speed" title="Toggle simulation speed">1x REALTIME</div>
+      </div>
+
+      <div class="header-actions">
+        <button class="btn-debrief" id="btn-open-modal">Give Up / View Protocol</button>
+      </div>
+    </header>
+
+    <!-- LEFT SIDEBAR: FULL-HEIGHT CLINICAL EVENT FEED & CLERKING -->
+    <aside class="left-panel">
+      <div class="glass-panel section-card log-card">
+        <div class="card-header">
+          <span class="card-title">Clerking &amp; Clinical Event Feed</span>
+          <span class="card-sub" id="active-infusions-count">0 Infusions</span>
+        </div>
+        <div class="log-feed" id="clinical-log"></div>
+      </div>
+    </aside>
+
+    <!-- CENTER VIEWPORT CONTROLS -->
+    <main class="center-area">
+      <div class="camera-bar glass-panel">
+        <button class="cam-btn active" data-cam="default">Full Bedside</button>
+        <button class="cam-btn" data-cam="head">Airway / Head</button>
+        <button class="cam-btn" data-cam="chest">Thorax / Auscultate</button>
+        <button class="cam-btn" data-cam="arm">Right Arm / IV Site</button>
+        <button class="cam-btn" data-cam="monitor">Multiparameter Monitor</button>
+      </div>
+    </main>
+
+    <!-- RIGHT SIDEBAR: FULL HEAD-TO-TOE BEDSIDE MONITOR -->
+    <aside class="right-panel">
+      <div class="glass-panel monitor-card">
+        <div class="card-header">
+          <span class="card-title">PHILIPS IntelliVue // Telemetry</span>
+          <span class="live-dot" id="monitor-alarm-dot"></span>
+        </div>
+
+        <div class="waveform-wrap">
+          <span class="wave-label">II ECG / PLETH</span>
+          <canvas id="waveform-canvas"></canvas>
+        </div>
+
+        <div class="vitals-grid">
+          <div class="vital-box hr-color" id="box-hr">
+            <div>
+              <div class="vital-label">HR <span>(bpm)</span></div>
+              <div class="vital-value" id="val-hr">126</div>
+            </div>
+            <div class="vital-sub" id="sub-hr">Sinus Tachy</div>
+          </div>
+
+          <div class="vital-box spo2-color" id="box-spo2">
+            <div>
+              <div class="vital-label">SpO2 <span>(%)</span></div>
+              <div class="vital-value" id="val-spo2">89</div>
+            </div>
+            <div class="vital-sub" id="sub-spo2">Room Air (21%)</div>
+          </div>
+
+          <div class="vital-box bp-color" id="box-bp">
+            <div>
+              <div class="vital-label">NIBP <span>(mmHg)</span></div>
+              <div class="vital-value" id="val-bp">82/46</div>
+            </div>
+            <div class="vital-sub" id="sub-map">MAP: 58 mmHg</div>
+          </div>
+
+          <div class="vital-box rr-color" id="box-rr">
+            <div>
+              <div class="vital-label">RR <span>(/min)</span></div>
+              <div class="vital-value" id="val-rr">28</div>
+            </div>
+            <div class="vital-sub" id="sub-rr">Tachypnoeic</div>
+          </div>
+
+          <div class="vital-box temp-color">
+            <div>
+              <div class="vital-label">TEMP <span>(°C)</span></div>
+              <div class="vital-value" id="val-temp">38.9</div>
+            </div>
+            <div class="vital-sub" id="sub-gcs">GCS: 14/15</div>
+          </div>
+
+          <div class="vital-box uo-color">
+            <div>
+              <div class="vital-label">URINE <span>(mL/hr)</span></div>
+              <div class="vital-value" id="val-uo">--</div>
+            </div>
+            <div class="vital-sub" id="sub-lactate">Lactate: ? mmol/L</div>
+          </div>
+        </div>
+
+        <div class="news-strip">
+          <div>
+            <div class="news-title">NEWS2 EARLY WARNING SCORE</div>
+            <div class="news-sub" id="phys-state-text">Critical Physiological Derangement</div>
+          </div>
+          <div class="news-badge" id="val-news">11 (HIGH)</div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- BOTTOM CLINICAL ACTION DRAWER (SPANS COLS 1–2, STOPS AT RIGHT PANEL) -->
+    <footer class="bottom-drawer glass-panel">
+      <div class="tabs-row" id="action-tabs">
+        <button class="tab-btn active" data-tab="clerking">🗣️ Clerking &amp; History</button>
+        <button class="tab-btn" data-tab="exam">🩺 A–E Physical Exam</button>
+        <button class="tab-btn" data-tab="procedures">⚡ Bedside Procedures</button>
+        <button class="tab-btn" data-tab="drugs">💉 IV Fluids &amp; Medications</button>
+        <button class="tab-btn" data-tab="labs">🧪 Labs, Cultures &amp; Blood Gas</button>
+      </div>
+      <div class="actions-scroll-track" id="actions-container"></div>
+    </footer>
+
+  </div>
+
+  <!-- END-OF-CASE / PROTOCOL REVEAL POP-UP MODAL -->
+  <div class="modal-backdrop" id="modal-backdrop">
+    <div class="modal-card glass-panel">
+      <div class="modal-status" id="modal-badge">CASE DEBRIEF &amp; MANAGEMENT PROTOCOL</div>
+      <h2 class="modal-title" id="modal-title">Diagnosis &amp; Resuscitation Review</h2>
+      <p class="modal-desc" id="modal-desc"></p>
+
+      <!-- Revealed Clinical Protocol Checklist -->
+      <div class="protocol-reveal-box">
+        <div class="protocol-reveal-header">
+          <span id="revealed-diagnosis-label">DIAGNOSIS: SEPTIC SHOCK</span>
+          <span id="revealed-score-tag">0 / 6 COMPLETED</span>
+        </div>
+        <div class="protocol-checklist" id="modal-protocol-list"></div>
+      </div>
+
+      <div class="modal-metrics" id="modal-metrics"></div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="btn-close-modal">Close Pop-Up</button>
+        <button class="btn-primary" id="btn-restart-sim">Restart Simulation</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modular JavaScript Architecture -->
+  <script src="js/cases.js"></script>
+  <script src="js/scene3d.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
