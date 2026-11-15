@@ -1,13 +1,17 @@
-// api/clerk.js
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
     if (req.method !== 'POST') {
       return res.status(405).json({ error: 'Method not allowed' });
     }
   
-    const { question, speakerTarget, caseFactSheet, currentVitals, chatHistory } = req.body;
+    const { question, speakerTarget, caseFactSheet, currentVitals, chatHistory } = req.body || {};
   
     if (!question || !caseFactSheet) {
       return res.status(400).json({ error: 'Missing question or case data' });
+    }
+  
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(503).json({ error: 'GEMINI_API_KEY not configured' });
     }
   
     const systemInstruction = `
@@ -18,25 +22,20 @@ export default async function handler(req, res) {
   ${JSON.stringify(caseFactSheet, null, 2)}
   
   CURRENT PHYSIOLOGICAL STATE:
-  - Glasgow Coma Scale (GCS): ${currentVitals.gcs}/15
-  - Heart Rate: ${Math.round(currentVitals.hr)} bpm | SpO2: ${Math.round(currentVitals.spo2)}% | BP: ${Math.round(currentVitals.sbp)}/${Math.round(currentVitals.dbp)} mmHg | Temp: ${currentVitals.temp.toFixed(1)}°C
+  - Glasgow Coma Scale (GCS): ${currentVitals?.gcs ?? 14}/15
+  - Heart Rate: ${Math.round(currentVitals?.hr ?? 126)} bpm | SpO2: ${Math.round(currentVitals?.spo2 ?? 89)}% | BP: ${Math.round(currentVitals?.sbp ?? 82)}/${Math.round(currentVitals?.dbp ?? 46)} mmHg | Temp: ${(currentVitals?.temp ?? 38.9).toFixed(1)}°C
   
   STRICT ROLEPLAY RULES:
   1. Target Addressed: The student is speaking to "${speakerTarget}".
-     - If the student addresses the PATIENT directly, answer as the patient in short, distressed, breathy/confused lay phrases appropriate for a GCS of ${currentVitals.gcs}/15. If GCS <= 12, the patient is too drowsy/confused to give a full history, so the relative jumps in to clarify.
-     - If the student addresses the RELATIVE, answer clearly and anxiously as the accompanying family member.
+     - If addressing PATIENT: answer in short, distressed, breathy lay phrases appropriate for GCS ${currentVitals?.gcs ?? 14}/15. If GCS <= 12, the relative steps in to clarify.
+     - If addressing RELATIVE: answer clearly and anxiously as the accompanying family member.
   2. NEVER state or hint at the medical diagnosis (do NOT say "sepsis", "septic shock", "pneumonia", or "pyelonephritis"). Use everyday lay descriptions only.
-  3. Stick strictly to the Clinical Fact Sheet. For any symptom or medical history NOT listed in the fact sheet (e.g., allergies, travel, trauma, vomiting), deny it naturally in character ("No doctor, nothing like that").
-  4. Keep responses concise, natural, and realistic (1 to 3 sentences maximum) so the student feels the urgency of an A&E resuscitation bay.
-  5. Return ONLY valid JSON in this exact format: {"speaker": "Name (Role)", "reply": "Spoken dialogue here"}
+  3. Stick strictly to the Clinical Fact Sheet. Deny any symptom or history not listed naturally in character.
+  4. Keep responses concise (1 to 3 sentences maximum).
+  5. Return ONLY raw JSON with no markdown fences: {"speaker": "Name (Role)", "reply": "Spoken dialogue here"}
   `;
   
     try {
-      const apiKey = process.env.GEMINI_API_KEY;
-      if (!apiKey) {
-        return res.status(503).json({ error: 'GEMINI_API_KEY not configured' });
-      }
-  
       const formattedHistory = (chatHistory || []).slice(-6).map(turn => ({
         role: turn.role === 'doctor' ? 'user' : 'model',
         parts: [{ text: turn.text }]
@@ -55,22 +54,38 @@ export default async function handler(req, res) {
             ],
             generationConfig: {
               temperature: 0.4,
-              maxOutputTokens: 180,
-              responseMimeType: 'application/json'
+              maxOutputTokens: 200
             }
           })
         }
       );
   
       const data = await response.json();
-      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      const parsed = JSON.parse(rawText);
+  
+      if (!response.ok) {
+        console.error('Gemini API Error:', JSON.stringify(data));
+        return res.status(502).json({
+          error: 'Gemini upstream error',
+          details: data?.error?.message || 'Unknown upstream error'
+        });
+      }
+  
+      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
+      const cleaned = rawText.replace(/```json|```/gi, '').trim();
+  
+      let parsed;
+      try {
+        parsed = JSON.parse(cleaned);
+      } catch {
+        parsed = { speaker: speakerTarget, reply: cleaned || 'I... I am not sure, doctor.' };
+      }
   
       return res.status(200).json({
         speaker: parsed.speaker || speakerTarget,
         reply: parsed.reply
       });
     } catch (err) {
-      return res.status(500).json({ error: 'Failed to generate bedside response' });
+      console.error('Clerk Handler Crash:', err);
+      return res.status(500).json({ error: err.message || 'Internal server error' });
     }
-  }
+  };
