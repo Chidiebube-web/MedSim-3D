@@ -20,15 +20,10 @@ module.exports = async function handler(req, res) {
       ? (caseFactSheet.accompanyingRelative || 'Relative')
       : (caseFactSheet.patientName || 'Patient');
   
-    const systemInstruction = `You are roleplaying in an A&E clinical simulation as ${resolvedSpeaker}.
+    const systemInstruction = `Roleplay in an A&E simulation as ${resolvedSpeaker}.
   Patient GCS: ${gcs}/15, HR: ${Math.round(currentVitals?.hr ?? 126)}, SpO2: ${Math.round(currentVitals?.spo2 ?? 89)}%.
-  Case Facts: ${JSON.stringify(caseFactSheet)}
-  
-  Rules:
-  - Respond ONLY with spoken dialogue in character (1 to 2 natural sentences). Do NOT output JSON, brackets, or labels.
-  - ${isRelative ? 'Speak clearly and anxiously as the accompanying family member.' : 'Speak in short, distressed, breathy lay phrases.'}
-  - NEVER mention medical diagnoses (no "sepsis", "shock", "pneumonia", "pyelonephritis"). Use everyday lay descriptions only.
-  - Deny any symptom or history not listed in Case Facts naturally in character.`;
+  Facts: ${JSON.stringify(caseFactSheet)}
+  Rules: Reply in 1-2 short natural sentences of spoken dialogue only (no JSON/labels). ${isRelative ? 'Anxious family member.' : 'Short breathy lay phrases.'} Never mention medical diagnoses. Deny unlisted symptoms naturally.`;
   
     const formattedHistory = (chatHistory || []).slice(-4).map(turn => ({
       role: turn.role === 'doctor' ? 'user' : 'model',
@@ -39,71 +34,51 @@ module.exports = async function handler(req, res) {
       systemInstruction: { parts: [{ text: systemInstruction }] },
       contents: [
         ...formattedHistory,
-        { role: 'user', parts: [{ text: `Doctor asks: "${question}"` }] }
+        { role: 'user', parts: [{ text: `Doctor: "${question}"` }] }
       ],
       generationConfig: {
         temperature: 0.4,
-        maxOutputTokens: 600
+        maxOutputTokens: 500
       }
     });
   
-    // Active Gemini 3.8 endpoints with automatic retry on temporary 503 demand spikes
-    const attempts = [
-      { model: 'gemini-3.8-flash', delayMs: 0 },
-      { model: 'gemini-3.8-flash-lite', delayMs: 300 },
-      { model: 'gemini-3.8-flash', delayMs: 700 }
-    ];
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8500);
   
-    let lastError = 'Upstream error';
+    try {
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: payload
+        }
+      );
   
-    for (const attempt of attempts) {
-      if (attempt.delayMs > 0) {
-        await new Promise(resolve => setTimeout(resolve, attempt.delayMs));
+      clearTimeout(timeoutId);
+      const data = await response.json();
+  
+      if (!response.ok) {
+        return res.status(502).json({
+          error: 'Gemini upstream error',
+          details: data?.error?.message || `HTTP ${response.status}`
+        });
       }
   
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4500);
+      const rawText = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '')
+        .replace(/^["']|["']$/g, '')
+        .trim();
   
-      try {
-        const response = await fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/${attempt.model}:generateContent?key=${apiKey}`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            signal: controller.signal,
-            body: payload
-          }
-        );
-  
-        clearTimeout(timeoutId);
-        const data = await response.json();
-  
-        if (response.ok) {
-          const rawText = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '')
-            .replace(/^["']|["']$/g, '')
-            .trim();
-  
-          return res.status(200).json({
-            speaker: resolvedSpeaker,
-            reply: rawText || 'Please help her, doctor...'
-          });
-        }
-  
-        lastError = data?.error?.message || `HTTP ${response.status}`;
-  
-        if (response.status === 503 || response.status === 429 || response.status === 404) {
-          continue;
-        }
-  
-        break;
-      } catch (err) {
-        clearTimeout(timeoutId);
-        lastError = err.name === 'AbortError' ? `${attempt.model} timeout` : err.message;
-      }
+      return res.status(200).json({
+        speaker: resolvedSpeaker,
+        reply: rawText || 'Please help her, doctor...'
+      });
+    } catch (err) {
+      clearTimeout(timeoutId);
+      return res.status(502).json({
+        error: 'Gemini upstream error',
+        details: err.name === 'AbortError' ? 'gemini-3.8-flash timeout (>8.5s)' : err.message
+      });
     }
-  
-    return res.status(502).json({
-      error: 'Gemini upstream error',
-      details: lastError
-    });
   };
