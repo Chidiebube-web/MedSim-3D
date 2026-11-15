@@ -5,7 +5,6 @@ module.exports = async function handler(req, res) {
     }
   
     const { question, speakerTarget, caseFactSheet, currentVitals, chatHistory } = req.body || {};
-  
     if (!question || !caseFactSheet) {
       return res.status(400).json({ error: 'Missing question or case data' });
     }
@@ -15,29 +14,27 @@ module.exports = async function handler(req, res) {
       return res.status(503).json({ error: 'GEMINI_API_KEY not configured' });
     }
   
-    const systemInstruction = `
-  You are roleplaying in an Accident & Emergency medical simulation ("MedSim 3D") for clinical medical students.
-  You are answering a student doctor's bedside clerking question.
+    const gcs = currentVitals?.gcs ?? 14;
+    const isRelative = speakerTarget === 'Relative' || gcs <= 12;
+    const resolvedSpeaker = isRelative
+      ? (caseFactSheet.accompanyingRelative || 'Relative')
+      : (caseFactSheet.patientName || 'Patient');
   
-  PATIENT & RELATIVE CLINICAL FACT SHEET:
-  ${JSON.stringify(caseFactSheet, null, 2)}
+    const systemInstruction = `You are roleplaying in an A&E clinical simulation as ${resolvedSpeaker}.
+  Patient GCS: ${gcs}/15, HR: ${Math.round(currentVitals?.hr ?? 126)}, SpO2: ${Math.round(currentVitals?.spo2 ?? 89)}%.
+  Case Facts: ${JSON.stringify(caseFactSheet)}
   
-  CURRENT PHYSIOLOGICAL STATE:
-  - Glasgow Coma Scale (GCS): ${currentVitals?.gcs ?? 14}/15
-  - Heart Rate: ${Math.round(currentVitals?.hr ?? 126)} bpm | SpO2: ${Math.round(currentVitals?.spo2 ?? 89)}% | BP: ${Math.round(currentVitals?.sbp ?? 82)}/${Math.round(currentVitals?.dbp ?? 46)} mmHg | Temp: ${(currentVitals?.temp ?? 38.9).toFixed(1)}°C
+  Rules:
+  - Respond ONLY with spoken dialogue in character (1 to 2 natural sentences). Do NOT output JSON, brackets, or labels.
+  - ${isRelative ? 'Speak clearly and anxiously as the accompanying family member.' : 'Speak in short, distressed, breathy lay phrases.'}
+  - NEVER mention medical diagnoses (no "sepsis", "shock", "pneumonia", "pyelonephritis"). Use everyday lay descriptions only.
+  - Deny any symptom or history not listed in Case Facts naturally in character.`;
   
-  STRICT ROLEPLAY RULES:
-  1. Target Addressed: The student is speaking to "${speakerTarget}".
-     - If addressing PATIENT: answer in short, distressed, breathy lay phrases appropriate for GCS ${currentVitals?.gcs ?? 14}/15. If GCS <= 12, the relative steps in to clarify.
-     - If addressing RELATIVE: answer clearly and anxiously as the accompanying family member.
-  2. NEVER state or hint at the medical diagnosis (do NOT say "sepsis", "septic shock", "pneumonia", or "pyelonephritis"). Use everyday lay descriptions only.
-  3. Stick strictly to the Clinical Fact Sheet. Deny any symptom or history not listed naturally in character.
-  4. Keep responses concise (1 to 3 sentences maximum).
-  5. Return ONLY raw JSON with no markdown fences: {"speaker": "Name (Role)", "reply": "Spoken dialogue here"}
-  `;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 9000);
   
     try {
-      const formattedHistory = (chatHistory || []).slice(-6).map(turn => ({
+      const formattedHistory = (chatHistory || []).slice(-4).map(turn => ({
         role: turn.role === 'doctor' ? 'user' : 'model',
         parts: [{ text: turn.text }]
       }));
@@ -47,46 +44,41 @@ module.exports = async function handler(req, res) {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
           body: JSON.stringify({
             systemInstruction: { parts: [{ text: systemInstruction }] },
             contents: [
               ...formattedHistory,
-              { role: 'user', parts: [{ text: `[Addressing: ${speakerTarget}] Doctor asks: "${question}"` }] }
+              { role: 'user', parts: [{ text: `Doctor asks: "${question}"` }] }
             ],
             generationConfig: {
               temperature: 0.4,
-              maxOutputTokens: 200
+              maxOutputTokens: 600
             }
           })
         }
       );
   
+      clearTimeout(timeoutId);
       const data = await response.json();
   
       if (!response.ok) {
-        console.error('Gemini API Error:', JSON.stringify(data));
         return res.status(502).json({
           error: 'Gemini upstream error',
-          details: data?.error?.message || 'Unknown upstream error'
+          details: data?.error?.message || 'Upstream error'
         });
       }
   
-      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
-      const cleaned = rawText.replace(/```json|```/gi, '').trim();
-  
-      let parsed;
-      try {
-        parsed = JSON.parse(cleaned);
-      } catch {
-        parsed = { speaker: speakerTarget, reply: cleaned || 'I... I am not sure, doctor.' };
-      }
+      const rawText = (data?.candidates?.[0]?.content?.parts?.[0]?.text || '')
+        .replace(/^["']|["']$/g, '')
+        .trim();
   
       return res.status(200).json({
-        speaker: parsed.speaker || speakerTarget,
-        reply: parsed.reply
+        speaker: resolvedSpeaker,
+        reply: rawText || 'Please help her, doctor...'
       });
     } catch (err) {
-      console.error('Clerk Handler Crash:', err);
-      return res.status(500).json({ error: err.message || 'Internal server error' });
+      clearTimeout(timeoutId);
+      return res.status(504).json({ error: err.name === 'AbortError' ? 'AI timeout' : err.message });
     }
   };

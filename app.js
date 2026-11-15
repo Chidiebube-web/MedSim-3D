@@ -266,6 +266,23 @@
         simState.isAskingQuestion = false;
         renderActions('clerking');
       }
+
+      const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+
+    const res = await fetch('/api/clerk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        question: questionText,
+        speakerTarget: target,
+        caseFactSheet: c.aiFactSheet,
+        currentVitals: simState.vitals,
+        chatHistory: simState.chatHistory
+      })
+    });
+    clearTimeout(timer);
     }
   
     function generateLocalFallbackReply(q, target, fact) {
